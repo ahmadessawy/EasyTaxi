@@ -115,69 +115,76 @@ app.get('/api/rides', (req, res) => {
 });
 
 // Endpoint: Driver accepts a ride
+// Endpoint: Driver accepts a ride
 app.post('/api/rides/:id/accept', (req, res) => {
-    // Get ride ID from URL
     const id = parseInt(req.params.id);
-    // Get driverId from request body (for assignment)
     const { driverId } = req.body;
-    // Find the ride by ID
     const ride = rides.find(r => r.id === id);
-    if (!ride) {
-        // If ride not found, respond with error
-        return res.status(404).json({ error: 'Ride not found' });
-    }
-    if (ride.status !== 'pending') {
-        return res.status(400).json({ error: 'Ride is not pending' });
-    }
-    // Find driver info
+    if (!ride) return res.status(404).json({ error: 'Ride not found' });
+    if (ride.status !== 'pending') return res.status(400).json({ error: 'Ride is not pending' });
     const driver = drivers.find(d => d.id == driverId);
-    if (!driver) {
-        return res.status(400).json({ error: 'Invalid driver' });
-    }
-    // Assign driver and update status
+    if (!driver) return res.status(400).json({ error: 'Invalid driver' });
     ride.status = 'accepted';
     ride.driverId = driver.id;
     ride.driverName = driver.name;
-    // Respond with updated ride
+    res.json(ride);
+});
+
+// Endpoint: Driver starts a ride (only if accepted)
+app.post('/api/rides/:id/start', (req, res) => {
+    const id = parseInt(req.params.id);
+    const { driverId } = req.body;
+    const ride = rides.find(r => r.id === id);
+    if (!ride) return res.status(404).json({ error: 'Ride not found' });
+    if (ride.status !== 'accepted') return res.status(400).json({ error: 'Ride is not accepted' });
+    if (ride.driverId !== driverId) return res.status(403).json({ error: 'Only assigned driver can start the ride' });
+    ride.status = 'ongoing';
+    res.json(ride);
+});
+
+// Endpoint: Driver ends a ride (only if ongoing)
+app.post('/api/rides/:id/end', (req, res) => {
+    const id = parseInt(req.params.id);
+    const { driverId } = req.body;
+    const ride = rides.find(r => r.id === id);
+    if (!ride) return res.status(404).json({ error: 'Ride not found' });
+    if (ride.status !== 'ongoing') return res.status(400).json({ error: 'Ride is not ongoing' });
+    if (ride.driverId !== driverId) return res.status(403).json({ error: 'Only assigned driver can end the ride' });
+    ride.status = 'completed';
     res.json(ride);
 });
 
 // Endpoint: Complete a ride (driver or admin)
-app.post('/api/rides/:id/complete', (req, res) => {
-    // Get ride ID from URL
-    const id = parseInt(req.params.id);
-    // Find the ride by ID
-    const ride = rides.find(r => r.id === id);
-    if (!ride) {
-        // If ride not found, respond with error
-        return res.status(404).json({ error: 'Ride not found' });
-    }
-    if (ride.status !== 'accepted') {
-        return res.status(400).json({ error: 'Ride is not accepted' });
-    }
-    // Update ride status to completed
-    ride.status = 'completed';
-    // Respond with updated ride
-    res.json(ride);
-});
+// (Deprecated: replaced by /start and /end endpoints)
 
 // Endpoint: Cancel a ride (admin)
+// Endpoint: Cancel a ride (role-based)
 app.post('/api/rides/:id/cancel', (req, res) => {
-    // Get ride ID from URL
     const id = parseInt(req.params.id);
-    // Find the ride by ID
+    const { role, userId } = req.body; // role: 'customer', 'driver', 'admin'
     const ride = rides.find(r => r.id === id);
-    if (!ride) {
-        // If ride not found, respond with error
-        return res.status(404).json({ error: 'Ride not found' });
+    if (!ride) return res.status(404).json({ error: 'Ride not found' });
+    if (ride.status === 'completed') return res.status(400).json({ error: 'Cannot cancel a completed ride' });
+    // Only admin can cancel anytime except completed
+    if (role === 'admin') {
+        ride.status = 'cancelled';
+        return res.json(ride);
     }
-    if (ride.status === 'completed') {
-        return res.status(400).json({ error: 'Cannot cancel a completed ride' });
+    // Customer can cancel only if pending
+    if (role === 'customer') {
+        if (ride.customerId !== userId) return res.status(403).json({ error: 'Only requesting customer can cancel' });
+        if (ride.status !== 'pending') return res.status(400).json({ error: 'Customer can only cancel pending ride' });
+        ride.status = 'cancelled';
+        return res.json(ride);
     }
-    // Update ride status to cancelled
-    ride.status = 'cancelled';
-    // Respond with updated ride
-    res.json(ride);
+    // Driver can cancel only if accepted or ongoing
+    if (role === 'driver') {
+        if (ride.driverId !== userId) return res.status(403).json({ error: 'Only assigned driver can cancel' });
+        if (ride.status !== 'accepted' && ride.status !== 'ongoing') return res.status(400).json({ error: 'Driver can only cancel accepted or ongoing ride' });
+        ride.status = 'cancelled';
+        return res.json(ride);
+    }
+    return res.status(403).json({ error: 'Invalid role or permission' });
 });
 
 // Start the server and listen on the specified port

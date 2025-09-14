@@ -12,7 +12,7 @@ app.use(express.json());
 
 // Enable CORS for all routes
 const cors = require('cors');
-// app.use(cors({ origin: 'https://zakajobs.com' }));
+app.use(cors());
 
 // Add a simple root route for sponsors/demo
 app.get('/', (req, res) => {

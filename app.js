@@ -10,18 +10,13 @@ const PORT = process.env.PORT || 3000;
 // Use built-in middleware to parse JSON request bodies
 app.use(express.json());
 
-// Enable CORS for local frontend development
+// Enable CORS for all routes
+const cors = require('cors');
+app.use(cors({ origin: 'https://zakajobs.com' }));
+
 // Add a simple root route for sponsors/demo
 app.get('/', (req, res) => {
     res.send('<h2>Welcome to EasyTaxi Backend API</h2><p>Use /api/customers, /api/drivers, /api/rides endpoints.</p>');
-});
-app.use((req, res, next) => {
-    // Allow all origins (for MVP/local use)
-    res.header('Access-Control-Allow-Origin', '*');
-    // Allow common headers and methods
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    next(); // Continue to next middleware/route
 });
 
 // In-memory array to store rides (no database for MVP)

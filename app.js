@@ -5,7 +5,7 @@ const express = require('express');
 // Create an Express application
 const app = express();
 // Set the port for the server to listen on
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // Use built-in middleware to parse JSON request bodies
 app.use(express.json());
@@ -82,6 +82,11 @@ app.post('/api/rides', (req, res) => {
     if (!customer) {
         return res.status(400).json({ error: 'Invalid customer' });
     }
+        // Check if customer already has an active ride (pending, accepted, ongoing)
+        const activeRide = rides.find(r => r.customerId == customerId && ['pending','accepted','ongoing'].includes(r.status));
+        if (activeRide) {
+            return res.status(400).json({ error: 'Customer already has an active ride' });
+        }
     // Create a new ride object
     const ride = {
         id: nextId++, // Unique ride ID
@@ -140,6 +145,42 @@ app.post('/api/rides/:id/accept', (req, res) => {
     ride.driverName = driver.name;
     // Respond with updated ride
     res.json(ride);
+    });
+
+    // Endpoint: Driver starts a ride (only if accepted)
+    app.post('/api/rides/:id/start', (req, res) => {
+        const id = parseInt(req.params.id);
+        const { driverId } = req.body;
+        const ride = rides.find(r => r.id === id);
+        if (!ride) return res.status(404).json({ error: 'Ride not found' });
+        if (ride.status !== 'accepted') return res.status(400).json({ error: 'Ride is not accepted' });
+        if (ride.driverId !== driverId) return res.status(403).json({ error: 'Only assigned driver can start the ride' });
+        // Check if driver already has another ongoing ride
+        const ongoing = rides.find(r => r.driverId === driverId && r.status === 'ongoing');
+        if (ongoing) return res.status(400).json({ error: 'Driver already has an ongoing ride' });
+        ride.status = 'ongoing';
+        res.json(ride);
+    });
+
+    // Endpoint: End a ride (driver or admin)
+    app.post('/api/rides/:id/end', (req, res) => {
+        const id = parseInt(req.params.id);
+        const { driverId, role } = req.body;
+        const ride = rides.find(r => r.id === id);
+        console.log('END RIDE DEBUG:', {
+            rideId: req.params.id,
+            rideDriverId: ride ? ride.driverId : undefined,
+            requestDriverId: driverId,
+            rideObj: ride
+        });
+        if (!ride) return res.status(404).json({ error: 'Ride not found' });
+        if (ride.status !== 'ongoing') return res.status(400).json({ error: 'Ride is not ongoing' });
+        // Only assigned driver or admin can end
+            if (role === 'admin' || (role === 'driver' && parseInt(driverId) === parseInt(ride.driverId))) {
+            ride.status = 'completed';
+            return res.json(ride);
+        }
+        return res.status(403).json({ error: 'Only assigned driver or admin can end the ride' });
 });
 
 // Endpoint: Complete a ride (driver or admin)
@@ -163,21 +204,31 @@ app.post('/api/rides/:id/complete', (req, res) => {
 
 // Endpoint: Cancel a ride (admin)
 app.post('/api/rides/:id/cancel', (req, res) => {
-    // Get ride ID from URL
     const id = parseInt(req.params.id);
-    // Find the ride by ID
+    const { role, userId } = req.body; // role: 'customer', 'driver', 'admin'
     const ride = rides.find(r => r.id === id);
-    if (!ride) {
-        // If ride not found, respond with error
-        return res.status(404).json({ error: 'Ride not found' });
+    if (!ride) return res.status(404).json({ error: 'Ride not found' });
+    if (ride.status === 'completed') return res.status(400).json({ error: 'Cannot cancel a completed ride' });
+    // Only admin can cancel anytime except completed
+    if (role === 'admin') {
+        ride.status = 'cancelled';
+        return res.json(ride);
     }
-    if (ride.status === 'completed') {
-        return res.status(400).json({ error: 'Cannot cancel a completed ride' });
+    // Customer can cancel only if pending, accepted, ongoing
+    if (role === 'customer') {
+        if (ride.customerId !== userId) return res.status(403).json({ error: 'Only requesting customer can cancel' });
+        if (!['pending','accepted','ongoing'].includes(ride.status)) return res.status(400).json({ error: 'Customer can only cancel active ride' });
+        ride.status = 'cancelled';
+        return res.json(ride);
     }
-    // Update ride status to cancelled
-    ride.status = 'cancelled';
-    // Respond with updated ride
-    res.json(ride);
+    // Driver can cancel only if accepted or ongoing
+    if (role === 'driver') {
+        if (ride.driverId !== userId) return res.status(403).json({ error: 'Only assigned driver can cancel' });
+        if (!['accepted','ongoing'].includes(ride.status)) return res.status(400).json({ error: 'Driver can only cancel accepted or ongoing ride' });
+        ride.status = 'cancelled';
+        return res.json(ride);
+    }
+    return res.status(403).json({ error: 'Invalid role or permission' });
 });
 
 // Start the server and listen on the specified port
